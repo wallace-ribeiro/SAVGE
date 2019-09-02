@@ -3,27 +3,28 @@ const uuidv4 = require('uuid/v4');
 var app = express();
 app.use(express.json());       // to support JSON-encoded bodies
 app.use(express.urlencoded());
+//var sqlite3 = require('sqlite3').verbose();
+
+var sqlite = require('sqlite-sync');
+sqlite.connect('db/database.db');
+
+
+
 
 var logged = {};
 
-let hospitalNextId = 1;
-let delegaciaNextId = 1;
-let pontoTuristicoNextId = 1;
-let praiaNextId = 1;
-let ondeComerNextId = 1;
-let ondeDormirNextId = 1;
-let eventoNextId = 1;
-let banheiroNextId = 1;
 
-var hospitais = [];
 
-var delegacias = [];
-var pontos_turisticos = [];
-var praias = [];
-var onde_comer = [];
-var onde_dormir = [];
-var eventos = [];
-var banheiros = [];
+
+//var db = new sqlite3.Database('./db/database.db', sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE, (err) => {
+//  if (err) {
+//    console.error(err.message);
+//  }
+  
+//  console.log('Connected to the database.');
+//});
+
+
 
 var users = {
   ceo: {username: 'ceo',password: '123456',admin: true},
@@ -100,217 +101,197 @@ app.post('/api/login', function(req, res) {
 });
 
 
-//-------------------- HOSPITAIS
-app.get('/api/hospitais', function(req, res) {
+function get(req, res, tableName) {
   console.log('req query: ',req.query);
   let aux = [];
+  let objects = sqlite.run("SELECT * FROM "+tableName);
+  console.log('objects: ',objects);
   if(req.query.search) {
     let search = req.query.search
-    aux = hospitais.filter((h) => (h.nome && h.nome.toUpperCase().includes(search.toUpperCase()))
+    aux = objects.filter((h) => (h.nome && h.nome.toUpperCase().includes(search.toUpperCase()))
       || (h.descricao && h.descricao.toUpperCase().includes(search.toUpperCase())) || (h.endereco && h.endereco.toUpperCase().includes(search.toUpperCase()))
     )
     
     
   } else {
-    aux = hospitais
+    aux = objects
   }
   res.send(JSON.stringify(aux));
+  
+}
+
+function getById(req, res, tableName) {
+  let token = req.headers.authorization;
+  if (req.params.id) {
+    let object = sqlite.run("SELECT * FROM "+tableName+" where id="+req.params.id);
+    object = object.length > 0 ? object[0] : null
+    if(!object) {
+      res.send(404);
+      return;
+    }
+	
+    res.send(object);
+    return;
+	
+      
+  }
+  res.sendStatus(400);
+}
+
+function insert(req, res, tableName) {
+  let token = req.headers.authorization;
+  let user = logged[token];
+  if(user) {
+    
+    let object = {
+      autor: user.username,
+      nome: req.body.nome,
+      descricao: req.body.descricao,
+      endereco: req.body.endereco,
+      imagem: req.body.imagem,
+      latitude: req.body.latitude,
+      longitude: req.body.longitude,
+    };
+    
+    let id = sqlite.insert(tableName, object);
+    object.id = id;
+    console.log('new id: ',id)
+    res.send(object);
+    return;
+  }
+  res.sendStatus(401);
+}
+
+function update(req, res, tableName) {
+  let token = req.headers.authorization;
+  let user = logged[token];
+  console.log('user: ',user);
+  if (req.params.id) {
+      if(user) {
+        let object = sqlite.run("SELECT * FROM "+tableName+" where id="+req.params.id);
+        object = object.length > 0 ? object[0] : null
+	if(!object) {
+	  res.send(404);
+	  return;
+	}
+	if(user.admin || user.username == object.autor) {
+	    updateObject = {}
+	    updateObject.nome = req.body.nome;
+            updateObject.descricao = req.body.descricao;
+	    updateObject.endereco = req.body.endereco;
+	    updateObject.imagem = req.body.imagem;
+	    updateObject.latitude = req.body.latitude;
+	    updateObject.longitude = req.body.longitude;
+	    
+	    
+	    object.nome = req.body.nome;
+            object.descricao = req.body.descricao;
+	    object.endereco = req.body.endereco;
+	    object.imagem = req.body.imagem;
+	    object.latitude = req.body.latitude;
+	    object.longitude = req.body.longitude;
+	    
+	    sqlite.update(tableName, updateObject, {id: req.params.id});
+            res.send(object);
+            return;
+	}
+      }
+      res.sendStatus(401);
+      return;
+  }
+  res.sendStatus(400);
+}
+
+function remove(req, res, tableName) {
+  let token = req.headers.authorization;
+  let user = logged[token];
+  if (req.params.id) {
+      if(user) {
+        let object = getFromTableById(tableName, req.params.id);
+	if(!object) {
+	  res.send(404);
+	  return;
+	}
+	if(user.admin || user.username == object.autor) {
+	    sqlite.delete(tableName, {id: req.params.id});
+	    
+            res.send(object);
+            return;
+	}
+      }
+      res.sendStatus(401);
+      return;
+  }
+  res.sendStatus(400);
+}
+
+function updateObject(object, params) {
+  object.nome = params.nome;
+  object.descricao = params.descricao
+  object.endereco = params.endereco;
+  object.imagem = params.imagem;
+  object.latitude = params.latitude;
+  object.longitude = params.longitude;
+}
+
+function getFromTableById(table, id) {
+  let object = sqlite.run("SELECT * FROM "+table+" where id="+id);
+  object = object.length > 0 ? object[0] : null;
+  return object;
+}
+
+//-------------------- HOSPITAIS
+app.get('/api/hospitais', function(req, res) {
+  get(req, res, "hospitais")
 });
 
 
 app.get('/api/hospitais/:id', function(req, res) {
   
-  let token = req.headers.authorization;
-  if (req.params.id) {
-    let hospital = hospitais.find((n) => n.id == req.params.id);
-    if(!hospital) {
-      res.send(404);
-      return;
-    }
-	
-    res.send(hospital);
-    return;
-	
-      
-  }
-  res.sendStatus(400);
+  getById(req, res, "hospitais")
 });
 
 app.post('/api/hospitais', function(req, res) {
   
-  let token = req.headers.authorization;
-  let user = logged[token];
-  if(user) {
-    let hospital = {id: hospitalNextId,
-      autor: user.username,
-      nome: req.body.nome,
-      descricao: req.body.descricao,
-      endereco: req.body.endereco,
-      imagem: req.body.imagem,
-    };
-    hospitais.push(hospital);
-    hospitalNextId++;
-    res.send(hospital);
-    return;
-  }
-  res.sendStatus(401);
+  insert(req, res, "hospitais")
 });
+
 
 app.put('/api/hospitais/:id', function(req, res) {
   
-  let token = req.headers.authorization;
-  let user = logged[token];
-  if (req.params.id) {
-      if(user) {
-        let hospital = hospitais.find((n) => n.id == req.params.id);
-	if(!hospital) {
-	  res.send(404);
-	  return;
-	}
-	if(user.admin || user.username == hospital.autor) {
-	    hospital.nome = req.body.nome;
-            hospital.descricao = req.body.descricao;
-	    hospital.endereco = req.body.endereco;
-	    hospital.imagem = req.body.imagem;
-            res.send(hospital);
-            return;
-	}
-      }
-      res.sendStatus(401);
-      return;
-  }
-  res.sendStatus(400);
+  update(req, res, "hospitais")
 });
 
 app.delete('/api/hospitais/:id', function(req, res) {
   
-  let token = req.headers.authorization;
-  let user = logged[token];
-  if (req.params.id) {
-      if(user) {
-        let hospital = hospitais.find((n) => n.id == req.params.id);
-	let index = hospitais.findIndex((n) => n.id == req.params.id);
-	if(!hospital) {
-	  res.send(404);
-	  return;
-	}
-	if(user.admin || user.username == hospital.autor) {
-	    hospitais.splice(index, 1);
-            res.send(hospital);
-            return;
-	}
-      }
-      res.sendStatus(401);
-      return;
-  }
-  res.sendStatus(400);
+  remove(req, res, "hospitais")
 });
 
 //------------------- DELEGACIA
 
 app.get('/api/delegacias', function(req, res) {
-  console.log('req query: ',req.query);
-  let aux = [];
-  if(req.query.search) {
-    let search = req.query.search
-    aux = delegacias.filter((h) => (h.nome && h.nome.toUpperCase().includes(search.toUpperCase()))
-      || (h.descricao && h.descricao.toUpperCase().includes(search.toUpperCase())) || (h.endereco && h.endereco.toUpperCase().includes(search.toUpperCase()))
-    )
-    
-    
-  } else {
-    aux = delegacias
-  }
-  res.send(JSON.stringify(aux));
+  get(req, res, "delegacias")
 });
 
 
 app.get('/api/delegacias/:id', function(req, res) {
   
-  let token = req.headers.authorization;
-  if (req.params.id) {
-    let delegacia = delegacias.find((n) => n.id == req.params.id);
-    if(!delegacia) {
-      res.send(404);
-      return;
-    }
-	
-    res.send(delegacia);
-    return;
-	
-      
-  }
-  res.sendStatus(400);
+  getById(req, res, "delegacias")
 });
 
 app.post('/api/delegacias', function(req, res) {
   
-  let token = req.headers.authorization;
-  let user = logged[token];
-  if(user) {
-    let delegacia = {id: delegaciaNextId,
-      autor: user.username,
-      nome: req.body.nome,
-      descricao: req.body.descricao,
-      endereco: req.body.endereco,
-      imagem: req.body.imagem,
-    };
-    delegacias.push(delegacia);
-    delegaciaNextId++;
-    res.send(delegacia);
-    return;
-  }
-  res.sendStatus(401);
+  insert(req, res, "delegacias")
 });
 
 app.put('/api/delegacias/:id', function(req, res) {
   
-  let token = req.headers.authorization;
-  let user = logged[token];
-  if (req.params.id) {
-      if(user) {
-        let delegacia = delegacias.find((n) => n.id == req.params.id);
-	if(!delegacia) {
-	  res.send(404);
-	  return;
-	}
-	if(user.admin || user.username == delegacia.autor) {
-	    delegacia.nome = req.body.nome;
-            delegacia.descricao = req.body.descricao;
-	    delegacia.endereco = req.body.endereco;
-	    delegacia.imagem = req.body.imagem;
-            res.send(delegacia);
-            return;
-	}
-      }
-      res.sendStatus(401);
-      return;
-  }
-  res.sendStatus(400);
+  update(req, res, "delegacias")
 });
 
 app.delete('/api/delegacias/:id', function(req, res) {
   
-  let token = req.headers.authorization;
-  let user = logged[token];
-  if (req.params.id) {
-      if(user) {
-        let delegacia = delegacias.find((n) => n.id == req.params.id);
-	let index = delegacias.findIndex((n) => n.id == req.params.id);
-	if(!delegacia) {
-	  res.send(404);
-	  return;
-	}
-	if(user.admin || user.username == delegacia.autor) {
-	    delegacias.splice(index, 1);
-            res.send(delegacia);
-            return;
-	}
-      }
-      res.sendStatus(401);
-      return;
-  }
-  res.sendStatus(400);
+  remove(req, res, "delegacias")
 });
 
 //------------------------------------------------------
@@ -318,108 +299,28 @@ app.delete('/api/delegacias/:id', function(req, res) {
 //------------------- PONTOS TURISTICOS
 
 app.get('/api/pontos_turisticos', function(req, res) {
-  console.log('req query: ',req.query);
-  let aux = [];
-  if(req.query.search) {
-    let search = req.query.search
-    aux = pontos_turisticos.filter((h) => (h.nome && h.nome.toUpperCase().includes(search.toUpperCase()))
-      || (h.descricao && h.descricao.toUpperCase().includes(search.toUpperCase())) || (h.endereco && h.endereco.toUpperCase().includes(search.toUpperCase()))
-    )
-    
-    
-  } else {
-    aux = pontos_turisticos
-  }
-  res.send(JSON.stringify(aux));
+  get(req, res, "pontos_turisticos")
 });
 
 
 app.get('/api/pontos_turisticos/:id', function(req, res) {
   
-  let token = req.headers.authorization;
-  if (req.params.id) {
-    let ponto_turistico = pontos_turisticos.find((n) => n.id == req.params.id);
-    if(!ponto_turistico) {
-      res.send(404);
-      return;
-    }
-	
-    res.send(ponto_turistico);
-    return;
-	
-      
-  }
-  res.sendStatus(400);
+  getById(req, res, "pontos_turisticos")
 });
 
 app.post('/api/pontos_turisticos', function(req, res) {
   
-  let token = req.headers.authorization;
-  let user = logged[token];
-  if(user) {
-    let ponto_turistico = {id: pontoTuristicoNextId,
-      autor: user.username,
-      nome: req.body.nome,
-      descricao: req.body.descricao,
-      endereco: req.body.endereco,
-      imagem: req.body.imagem,
-    };
-    pontos_turisticos.push(ponto_turistico);
-    pontoTuristicoNextId++;
-    res.send(ponto_turistico);
-    return;
-  }
-  res.sendStatus(401);
+  insert(req, res, "pontos_turisticos")
 });
 
 app.put('/api/pontos_turisticos/:id', function(req, res) {
   
-  let token = req.headers.authorization;
-  let user = logged[token];
-  if (req.params.id) {
-      if(user) {
-        let ponto_turistico = pontos_turisticos.find((n) => n.id == req.params.id);
-	if(!ponto_turistico) {
-	  res.send(404);
-	  return;
-	}
-	if(user.admin || user.username == ponto_turistico.autor) {
-	    ponto_turistico.nome = req.body.nome;
-            ponto_turistico.descricao = req.body.descricao;
-	    ponto_turistico.endereco = req.body.endereco;
-	    ponto_turistico.imagem = req.body.imagem;
-            res.send(ponto_turistico);
-            return;
-	}
-      }
-      res.sendStatus(401);
-      return;
-  }
-  res.sendStatus(400);
+  update(req, res, "pontos_turisticos")
 });
 
 app.delete('/api/pontos_turisticos/:id', function(req, res) {
   
-  let token = req.headers.authorization;
-  let user = logged[token];
-  if (req.params.id) {
-      if(user) {
-        let ponto_turistico = pontos_turisticos.find((n) => n.id == req.params.id);
-	let index = pontos_turisticos.findIndex((n) => n.id == req.params.id);
-	if(!ponto_turistico) {
-	  res.send(404);
-	  return;
-	}
-	if(user.admin || user.username == ponto_turistico.autor) {
-	    pontos_turisticos.splice(index, 1);
-            res.send(ponto_turistico);
-            return;
-	}
-      }
-      res.sendStatus(401);
-      return;
-  }
-  res.sendStatus(400);
+  remove(req, res, "pontos_turisticos")
 });
 
 //------------------------------------------------------
@@ -427,108 +328,28 @@ app.delete('/api/pontos_turisticos/:id', function(req, res) {
 //------------------- PRAIAS
 
 app.get('/api/praias', function(req, res) {
-  console.log('req query: ',req.query);
-  let aux = [];
-  if(req.query.search) {
-    let search = req.query.search
-    aux = praias.filter((h) => (h.nome && h.nome.toUpperCase().includes(search.toUpperCase()))
-      || (h.descricao && h.descricao.toUpperCase().includes(search.toUpperCase())) || (h.endereco && h.endereco.toUpperCase().includes(search.toUpperCase()))
-    )
-    
-    
-  } else {
-    aux = praias
-  }
-  res.send(JSON.stringify(aux));
+  get(req, res, "praias")
 });
 
 
 app.get('/api/praias/:id', function(req, res) {
   
-  let token = req.headers.authorization;
-  if (req.params.id) {
-    let praia = praias.find((n) => n.id == req.params.id);
-    if(!praia) {
-      res.send(404);
-      return;
-    }
-	
-    res.send(praia);
-    return;
-	
-      
-  }
-  res.sendStatus(400);
+  getById(req, res, "praias")
 });
 
 app.post('/api/praias', function(req, res) {
   
-  let token = req.headers.authorization;
-  let user = logged[token];
-  if(user) {
-    let praia = {id: praiaNextId,
-      autor: user.username,
-      nome: req.body.nome,
-      descricao: req.body.descricao,
-      endereco: req.body.endereco,
-      imagem: req.body.imagem,
-    };
-    praias.push(praia);
-    praiaNextId++;
-    res.send(praia);
-    return;
-  }
-  res.sendStatus(401);
+  insert(req, res, "praias")
 });
 
 app.put('/api/praias/:id', function(req, res) {
   
-  let token = req.headers.authorization;
-  let user = logged[token];
-  if (req.params.id) {
-      if(user) {
-        let praia = praias.find((n) => n.id == req.params.id);
-	if(!praia) {
-	  res.send(404);
-	  return;
-	}
-	if(user.admin || user.username == praia.autor) {
-	    praia.nome = req.body.nome;
-            praia.descricao = req.body.descricao;
-	    praia.endereco = req.body.endereco;
-	    praia.imagem = req.body.imagem;
-            res.send(praia);
-            return;
-	}
-      }
-      res.sendStatus(401);
-      return;
-  }
-  res.sendStatus(400);
+  update(req, res, "praias")
 });
 
 app.delete('/api/praias/:id', function(req, res) {
   
-  let token = req.headers.authorization;
-  let user = logged[token];
-  if (req.params.id) {
-      if(user) {
-        let praia = praias.find((n) => n.id == req.params.id);
-	let index = praias.findIndex((n) => n.id == req.params.id);
-	if(!praia) {
-	  res.send(404);
-	  return;
-	}
-	if(user.admin || user.username == praia.autor) {
-	    praias.splice(index, 1);
-            res.send(praia);
-            return;
-	}
-      }
-      res.sendStatus(401);
-      return;
-  }
-  res.sendStatus(400);
+  remove(req, res, "praias")
 });
 
 //------------------------------------------------------
@@ -536,108 +357,28 @@ app.delete('/api/praias/:id', function(req, res) {
 //------------------- ONDE COMER
 
 app.get('/api/onde_comer', function(req, res) {
-  console.log('req query: ',req.query);
-  let aux = [];
-  if(req.query.search) {
-    let search = req.query.search
-    aux = onde_comer.filter((h) => (h.nome && h.nome.toUpperCase().includes(search.toUpperCase()))
-      || (h.descricao && h.descricao.toUpperCase().includes(search.toUpperCase())) || (h.endereco && h.endereco.toUpperCase().includes(search.toUpperCase()))
-    )
-    
-    
-  } else {
-    aux = onde_comer
-  }
-  res.send(JSON.stringify(aux));
+  get(req, res, "onde_comer")
 });
 
 
 app.get('/api/onde_comer/:id', function(req, res) {
   
-  let token = req.headers.authorization;
-  if (req.params.id) {
-    let aux = onde_comer.find((n) => n.id == req.params.id);
-    if(!aux) {
-      res.send(404);
-      return;
-    }
-	
-    res.send(aux);
-    return;
-	
-      
-  }
-  res.sendStatus(400);
+  getById(req, res, "onde_comer")
 });
 
 app.post('/api/onde_comer', function(req, res) {
   
-  let token = req.headers.authorization;
-  let user = logged[token];
-  if(user) {
-    let aux = {id: ondeComerNextId,
-      autor: user.username,
-      nome: req.body.nome,
-      descricao: req.body.descricao,
-      endereco: req.body.endereco,
-      imagem: req.body.imagem,
-    };
-    onde_comer.push(aux);
-    ondeComerNextId++;
-    res.send(aux);
-    return;
-  }
-  res.sendStatus(401);
+  insert(req, res, "onde_comer")
 });
 
 app.put('/api/onde_comer/:id', function(req, res) {
   
-  let token = req.headers.authorization;
-  let user = logged[token];
-  if (req.params.id) {
-      if(user) {
-        let aux = onde_comer.find((n) => n.id == req.params.id);
-	if(!aux) {
-	  res.send(404);
-	  return;
-	}
-	if(user.admin || user.username == aux.autor) {
-	    aux.nome = req.body.nome;
-            aux.descricao = req.body.descricao;
-	    aux.endereco = req.body.endereco;
-	    aux.imagem = req.body.imagem;
-            res.send(aux);
-            return;
-	}
-      }
-      res.sendStatus(401);
-      return;
-  }
-  res.sendStatus(400);
+  update(req, res, "onde_comer")
 });
 
 app.delete('/api/onde_comer/:id', function(req, res) {
   
-  let token = req.headers.authorization;
-  let user = logged[token];
-  if (req.params.id) {
-      if(user) {
-        let aux = onde_comer.find((n) => n.id == req.params.id);
-	let index = onde_comer.findIndex((n) => n.id == req.params.id);
-	if(!aux) {
-	  res.send(404);
-	  return;
-	}
-	if(user.admin || user.username == aux.autor) {
-	    onde_comer.splice(index, 1);
-            res.send(aux);
-            return;
-	}
-      }
-      res.sendStatus(401);
-      return;
-  }
-  res.sendStatus(400);
+  remove(req, res, "onde_comer")
 });
 
 //------------------------------------------------------
@@ -645,108 +386,28 @@ app.delete('/api/onde_comer/:id', function(req, res) {
 //------------------- ONDE DORMIR
 
 app.get('/api/onde_dormir', function(req, res) {
-  console.log('req query: ',req.query);
-  let aux = [];
-  if(req.query.search) {
-    let search = req.query.search
-    aux = onde_dormir.filter((h) => (h.nome && h.nome.toUpperCase().includes(search.toUpperCase()))
-      || (h.descricao && h.descricao.toUpperCase().includes(search.toUpperCase())) || (h.endereco && h.endereco.toUpperCase().includes(search.toUpperCase()))
-    )
-    
-    
-  } else {
-    aux = onde_dormir
-  }
-  res.send(JSON.stringify(aux));
+  get(req, res, "onde_dormir")
 });
 
 
 app.get('/api/onde_dormir/:id', function(req, res) {
   
-  let token = req.headers.authorization;
-  if (req.params.id) {
-    let aux = onde_dormir.find((n) => n.id == req.params.id);
-    if(!aux) {
-      res.send(404);
-      return;
-    }
-	
-    res.send(aux);
-    return;
-	
-      
-  }
-  res.sendStatus(400);
+  getById(req, res, "onde_dormir")
 });
 
 app.post('/api/onde_dormir', function(req, res) {
   
-  let token = req.headers.authorization;
-  let user = logged[token];
-  if(user) {
-    let aux = {id: ondeDormirNextId,
-      autor: user.username,
-      nome: req.body.nome,
-      descricao: req.body.descricao,
-      endereco: req.body.endereco,
-      imagem: req.body.imagem,
-    };
-    onde_dormir.push(aux);
-    ondeDormirNextId++;
-    res.send(aux);
-    return;
-  }
-  res.sendStatus(401);
+  insert(req, res, "onde_dormir")
 });
 
 app.put('/api/onde_dormir/:id', function(req, res) {
   
-  let token = req.headers.authorization;
-  let user = logged[token];
-  if (req.params.id) {
-      if(user) {
-        let aux = onde_dormir.find((n) => n.id == req.params.id);
-	if(!aux) {
-	  res.send(404);
-	  return;
-	}
-	if(user.admin || user.username == aux.autor) {
-	    aux.nome = req.body.nome;
-            aux.descricao = req.body.descricao;
-	    aux.endereco = req.body.endereco;
-	    aux.imagem = req.body.imagem;
-            res.send(aux);
-            return;
-	}
-      }
-      res.sendStatus(401);
-      return;
-  }
-  res.sendStatus(400);
+  update(req, res, "onde_dormir")
 });
 
 app.delete('/api/onde_dormir/:id', function(req, res) {
   
-  let token = req.headers.authorization;
-  let user = logged[token];
-  if (req.params.id) {
-      if(user) {
-        let aux = onde_dormir.find((n) => n.id == req.params.id);
-	let index = onde_dormir.findIndex((n) => n.id == req.params.id);
-	if(!aux) {
-	  res.send(404);
-	  return;
-	}
-	if(user.admin || user.username == aux.autor) {
-	    onde_dormir.splice(index, 1);
-            res.send(aux);
-            return;
-	}
-      }
-      res.sendStatus(401);
-      return;
-  }
-  res.sendStatus(400);
+  remove(req, res, "onde_dormir")
 });
 
 //------------------------------------------------------
@@ -756,79 +417,81 @@ app.delete('/api/onde_dormir/:id', function(req, res) {
 //------------------- EVENTOS
 
 app.get('/api/eventos', function(req, res) {
-  console.log('req query: ',req.query);
-  let aux = [];
-  if(req.query.search) {
-    let search = req.query.search
-    aux = eventos.filter((h) => (h.nome && h.nome.toUpperCase().includes(search.toUpperCase()))
-      || (h.descricao && h.descricao.toUpperCase().includes(search.toUpperCase())) || (h.endereco && h.endereco.toUpperCase().includes(search.toUpperCase()))
-    )
-    
-    
-  } else {
-    aux = eventos
-  }
-  res.send(JSON.stringify(aux));
+  get(req, res, "eventos")
 });
 
 
 app.get('/api/eventos/:id', function(req, res) {
   
-  let token = req.headers.authorization;
-  if (req.params.id) {
-    let aux = eventos.find((n) => n.id == req.params.id);
-    if(!aux) {
-      res.send(404);
-      return;
-    }
-	
-    res.send(aux);
-    return;
-	
-      
-  }
-  res.sendStatus(400);
+  getById(req, res, "eventos")
 });
 
-app.post('/api/eventos', function(req, res) {
+
+app.delete('/api/eventos/:id', function(req, res) {
   
+  remove(req, res, "eventos")
+});
+
+
+app.post('/api/eventos', function(req, res) {
   let token = req.headers.authorization;
   let user = logged[token];
   if(user) {
-    let aux = {id: eventoNextId,
+    
+    let object = {
       autor: user.username,
       nome: req.body.nome,
       descricao: req.body.descricao,
       endereco: req.body.endereco,
       imagem: req.body.imagem,
-      dataHora: req.body.dataHora,
+      data_hora: req.body.data_hora,
+      latitude: req.body.latitude,
+      longitude: req.body.longitude,
     };
-    eventos.push(aux);
-    eventoNextId++;
-    res.send(aux);
+    
+    let id = sqlite.insert("eventos", object);
+    object.id = id;
+    console.log('new id: ',id)
+    res.send(object);
     return;
   }
   res.sendStatus(401);
+  
 });
 
 app.put('/api/eventos/:id', function(req, res) {
-  
   let token = req.headers.authorization;
   let user = logged[token];
+  console.log('user: ',user);
   if (req.params.id) {
       if(user) {
-        let aux = eventos.find((n) => n.id == req.params.id);
-	if(!aux) {
+        let object = sqlite.run("SELECT * FROM "+tableName+" where id="+req.params.id);
+        object = object.length > 0 ? object[0] : null
+	if(!object) {
 	  res.send(404);
 	  return;
 	}
-	if(user.admin || user.username == aux.autor) {
-	    aux.nome = req.body.nome;
-            aux.descricao = req.body.descricao;
-	    aux.endereco = req.body.endereco;
-	    aux.imagem = req.body.imagem;
-	    aux.dataHora = req.body.dataHora;
-            res.send(aux);
+	if(user.admin || user.username == object.autor) {
+	    updateObject = {}
+	    updateObject.nome = req.body.nome;
+            updateObject.descricao = req.body.descricao;
+	    updateObject.endereco = req.body.endereco;
+	    updateObject.imagem = req.body.imagem;
+	    updateObject.data_hora = req.body.data_hora;
+	    updateObject.latitude = req.body.latitude;
+	    updateObject.longitude = req.body.longitude;
+	    
+	    
+	    object.nome = req.body.nome;
+            object.descricao = req.body.descricao;
+	    object.endereco = req.body.endereco;
+	    object.imagem = req.body.imagem;
+	    object.data_hora = req.body.data_hora;
+	    object.latitude = req.body.latitude;
+	    object.longitude = req.body.longitude;
+	    
+	    sqlite.update(tableName, updateObject, {id: req.params.id});
+            res.send(object);
             return;
 	}
       }
@@ -836,30 +499,7 @@ app.put('/api/eventos/:id', function(req, res) {
       return;
   }
   res.sendStatus(400);
-});
-
-app.delete('/api/eventos/:id', function(req, res) {
   
-  let token = req.headers.authorization;
-  let user = logged[token];
-  if (req.params.id) {
-      if(user) {
-        let aux = eventos.find((n) => n.id == req.params.id);
-	let index = eventos.findIndex((n) => n.id == req.params.id);
-	if(!aux) {
-	  res.send(404);
-	  return;
-	}
-	if(user.admin || user.username == aux.autor) {
-	    eventos.splice(index, 1);
-            res.send(aux);
-            return;
-	}
-      }
-      res.sendStatus(401);
-      return;
-  }
-  res.sendStatus(400);
 });
 
 //------------------------------------------------------
@@ -867,108 +507,28 @@ app.delete('/api/eventos/:id', function(req, res) {
 //------------------- BANHEIROS
 
 app.get('/api/banheiros', function(req, res) {
-  console.log('req query: ',req.query);
-  let aux = [];
-  if(req.query.search) {
-    let search = req.query.search
-    aux = banheiros.filter((h) => (h.nome && h.nome.toUpperCase().includes(search.toUpperCase()))
-      || (h.descricao && h.descricao.toUpperCase().includes(search.toUpperCase())) || (h.endereco && h.endereco.toUpperCase().includes(search.toUpperCase()))
-    )
-    
-    
-  } else {
-    aux = banheiros
-  }
-  res.send(JSON.stringify(aux));
+  get(req, res, "banheiros")
 });
 
 
 app.get('/api/banheiros/:id', function(req, res) {
   
-  let token = req.headers.authorization;
-  if (req.params.id) {
-    let aux = banheiros.find((n) => n.id == req.params.id);
-    if(!aux) {
-      res.send(404);
-      return;
-    }
-	
-    res.send(aux);
-    return;
-	
-      
-  }
-  res.sendStatus(400);
+  getById(req, res, "banheiros")
 });
 
 app.post('/api/banheiros', function(req, res) {
   
-  let token = req.headers.authorization;
-  let user = logged[token];
-  if(user) {
-    let aux = {id: banheiroNextId,
-      autor: user.username,
-      nome: req.body.nome,
-      descricao: req.body.descricao,
-      endereco: req.body.endereco,
-      imagem: req.body.imagem,
-    };
-    banheiros.push(aux);
-    banheiroNextId++;
-    res.send(aux);
-    return;
-  }
-  res.sendStatus(401);
+  insert(req, res, "banheiros")
 });
 
 app.put('/api/banheiros/:id', function(req, res) {
   
-  let token = req.headers.authorization;
-  let user = logged[token];
-  if (req.params.id) {
-      if(user) {
-        let aux = banheiros.find((n) => n.id == req.params.id);
-	if(!aux) {
-	  res.send(404);
-	  return;
-	}
-	if(user.admin || user.username == aux.autor) {
-	    aux.nome = req.body.nome;
-            aux.descricao = req.body.descricao;
-	    aux.endereco = req.body.endereco;
-	    aux.imagem = req.body.imagem;
-            res.send(aux);
-            return;
-	}
-      }
-      res.sendStatus(401);
-      return;
-  }
-  res.sendStatus(400);
+  update(req, res, "banheiros")
 });
 
 app.delete('/api/banheiros/:id', function(req, res) {
   
-  let token = req.headers.authorization;
-  let user = logged[token];
-  if (req.params.id) {
-      if(user) {
-        let aux = banheiros.find((n) => n.id == req.params.id);
-	let index = banheiros.findIndex((n) => n.id == req.params.id);
-	if(!aux) {
-	  res.send(404);
-	  return;
-	}
-	if(user.admin || user.username == aux.autor) {
-	    banheiros.splice(index, 1);
-            res.send(aux);
-            return;
-	}
-      }
-      res.sendStatus(401);
-      return;
-  }
-  res.sendStatus(400);
+  remove(req, res, "banheiros")
 });
 
 //------------------------------------------------------
